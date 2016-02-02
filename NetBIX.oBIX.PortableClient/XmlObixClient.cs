@@ -124,7 +124,7 @@ namespace NetBIX.oBIX.Client {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
-            result = ParseAboutContract();
+            //result = ParseAboutContract();
             if (result != ObixResult.kObixClientSuccess) {
                 return ErrorStack.Push(this.GetType(), result);
             }
@@ -175,7 +175,7 @@ namespace NetBIX.oBIX.Client {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
-            result = ParseAboutContract();
+            //result = ParseAboutContract();
             if (result != ObixResult.kObixClientSuccess) {
                 return ErrorStack.Push(this.GetType(), result);
             }

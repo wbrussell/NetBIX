@@ -10,31 +10,38 @@ using NetBIX.oBIX.Client.Extensions;
 using Flurl;
 using System.Xml;
 using System.Linq;
+using System.Net.Http.Headers;
+using System.Text;
 
-namespace NetBIX.oBIX.Client {
+namespace NetBIX.oBIX.Client
+{
     /// <summary>
     /// Implementation of oBIX Client for oBIX XML over HTTP(s)
     /// </summary>
-    public class XmlObixClient : Framework.ObixClient {
+    public class XmlObixClient : Framework.ObixClient
+    {
         protected Uri signUpUri = null;
         protected XmlBatchClient batchClient = null;
 
         /// <summary>
         /// Provides obix:Batch functionality for the XML oBIX client.
         /// </summary>
-        public XmlBatchClient Batch {
-            get {
-                if (this.BatchUri == null) {
+        public XmlBatchClient Batch
+        {
+            get
+            {
+                if (this.BatchUri == null)
+                {
                     throw new NotSupportedException("The oBIX server does not support the oBIX:Batch mechanism.");
                 }
 
                 return this.batchClient;
             }
-            protected set {
-                this.batchClient = value;   
+            protected set
+            {
+                this.batchClient = value;
             }
         }
-
 
         /// <summary>
         /// Gets the URI of the batch endpoint on the oBIX server for this instance of the oBIX client.
@@ -54,8 +61,10 @@ namespace NetBIX.oBIX.Client {
         /// <summary>
         /// Gets a value indicating whether this instance of the oBIX client is connected and ready to serve requests.
         /// </summary>
-        public bool IsConnected {
-            get {
+        public bool IsConnected
+        {
+            get
+            {
                 return connected;
             }
         }
@@ -64,11 +73,36 @@ namespace NetBIX.oBIX.Client {
         /// Initializes a new instance of the <see cref="NetBIX.oBIX.Client.XmlObixClient"/> class for oBIX XML over HTTP.
         /// </summary>
         /// <param name="ObixLobbyUri">Obix lobby URI.</param>
-        public XmlObixClient(Uri ObixLobbyUri)
-            : base(ObixLobbyUri) {
-            WebClient = new HttpClient();
-            ErrorStack = new ObixErrorStack();
+        /// <param name="password"></param>
+        /// <param name="authScheme"></param>
+        /// <param name="username"></param>
+        /// <param name="defaultHttpHandler">optional HttpHandler</param>
+        public XmlObixClient(Uri ObixLobbyUri, AuthenticationSchemes authScheme = AuthenticationSchemes.None, string username = "", string password = "", HttpClientHandler defaultHttpHandler = null)
+            : base(ObixLobbyUri)
+        {
+            //handle other auth types here....
+            switch (authScheme)
+            {
+                case AuthenticationSchemes.Anonymous:
+                case AuthenticationSchemes.None:
+                    WebClient = defaultHttpHandler == null ? new HttpClient() : new HttpClient(defaultHttpHandler);
+                    break;
+                case AuthenticationSchemes.Basic:
+                    WebClient = defaultHttpHandler == null ? new HttpClient() : new HttpClient(defaultHttpHandler);
+                    var byteArray = Encoding.UTF8.GetBytes(string.Format("{0}:{1}", username, password));
+                    var header = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(byteArray));
+                    WebClient.DefaultRequestHeaders.Authorization = header;
+                    break;
+                case AuthenticationSchemes.Digest:
+                    var cache = new CredentialCache();
+                    cache.Add(ObixLobbyUri, "Digest", new NetworkCredential(username, password, ObixLobbyUri.Host));
+                    WebClient = defaultHttpHandler == null ? new HttpClient(new HttpClientHandler() { Credentials = cache }) : new HttpClient(defaultHttpHandler);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(authScheme), authScheme, null);
+            }
 
+            ErrorStack = new ObixErrorStack();
         }
 
         /// <summary>
@@ -77,55 +111,71 @@ namespace NetBIX.oBIX.Client {
         /// <param name="ObixLobbyUri">An oBIX Lobby URI</param>
         /// <param name="RegisterUri">A relative path for an operation enabling devices to register themselves into the server.</param>
         public XmlObixClient(Uri ObixLobbyUri, string RegisterUri)
-            : base(ObixLobbyUri) {
-                WebClient = new HttpClient();
+            : base(ObixLobbyUri)
+        {
+            WebClient = new HttpClient();
             this.signUpUri = new Uri(Url.Combine(ObixLobbyUri.ToString(), RegisterUri));
         }
 
         #region "oBIX Connecting"
 
-        public override ObixResult Connect() {
+        public override ObixResult Connect()
+        {
             byte[] data = null;
             XDocument doc = null;
             MemoryStream ms = null;
             ObixResult result;
             HttpResponseMessage responseMessage = null;
 
-            if (WebClient == null || connected == true) {
+            if (WebClient == null || connected == true)
+            {
                 return ObixResult.kObixClientInputError;
             }
 
-            try {
+            try
+            {
                 responseMessage = WebClient.GetAsync(base.LobbyUri).Result;
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.Push(this.GetType(), ex);
             }
 
-            if (responseMessage.IsSuccessStatusCode == false) {
+            if (responseMessage.IsSuccessStatusCode == false)
+            {
                 return ErrorStack.Push(GetType(), ObixResult.kObixClientSocketError, responseMessage.ReasonPhrase);
             }
 
-            try {
+            try
+            {
                 data = responseMessage.Content.ReadAsByteArrayAsync().Result;
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.Push(GetType(), ex);
             }
 
-            using (ms = new MemoryStream(data)) {
-                try { 
+            using (ms = new MemoryStream(data))
+            {
+                try
+                {
                     doc = XDocument.Load(ms);
-                } catch (Exception ex) {
+                }
+                catch (Exception ex)
+                {
                     return ErrorStack.Push(this.GetType(), ex);
                 }
             }
 
             result = ParseLobbyContract(doc);
-            if (result != ObixResult.kObixClientSuccess) {
+            if (result != ObixResult.kObixClientSuccess)
+            {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
-            //result = ParseAboutContract();
-            if (result != ObixResult.kObixClientSuccess) {
+            result = ParseAboutContract();
+            if (result != ObixResult.kObixClientSuccess)
+            {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
@@ -133,37 +183,49 @@ namespace NetBIX.oBIX.Client {
             return ObixResult.kObixClientSuccess;
         }
 
-        public override async Task<ObixResult> ConnectAsync() {
+        public override async Task<ObixResult> ConnectAsync()
+        {
             byte[] data = null;
             XDocument doc = null;
             MemoryStream ms = null;
             ObixResult result;
             HttpResponseMessage responseMessage = null;
 
-            if (WebClient == null || connected == true) {
+            if (WebClient == null || connected == true)
+            {
                 return ObixResult.kObixClientInputError;
             }
 
-            try {
+            try
+            {
                 responseMessage = await WebClient.GetAsync(this.LobbyUri);
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.Push(this.GetType(), ex);
             }
 
-            if (responseMessage.IsSuccessStatusCode == false) {
+            if (responseMessage.IsSuccessStatusCode == false)
+            {
                 return ErrorStack.Push(GetType(), ObixResult.kObixClientSocketError, responseMessage.ReasonPhrase);
             }
 
-            try {
+            try
+            {
                 data = await responseMessage.Content.ReadAsByteArrayAsync();
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.Push(GetType(), ex);
             }
 
             ms = new MemoryStream(data);
-            try {
+            try
+            {
                 doc = await Task.Factory.StartNew(() => XDocument.Load(ms));
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 ErrorStack.Push(this.GetType(), ex);
                 return ObixResult.kObixClientXMLParseError;
             }
@@ -171,12 +233,14 @@ namespace NetBIX.oBIX.Client {
             ms = null;
 
             result = ParseLobbyContract(doc);
-            if (result != ObixResult.kObixClientSuccess) {
+            if (result != ObixResult.kObixClientSuccess)
+            {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
             //result = ParseAboutContract();
-            if (result != ObixResult.kObixClientSuccess) {
+            if (result != ObixResult.kObixClientSuccess)
+            {
                 return ErrorStack.Push(this.GetType(), result);
             }
 
@@ -188,23 +252,27 @@ namespace NetBIX.oBIX.Client {
         /// Parses the About contract after a client successfully connects and downloads the lobby contract.
         /// </summary>
         /// <returns>kObixClientSuccess if the operation succeeded, another value otherwise.</returns>
-        private ObixResult ParseAboutContract() {
+        private ObixResult ParseAboutContract()
+        {
             ObixResult<XElement> data = null;
             ObixAbout about = null;
 
-            if (WebClient == null || AboutUri == null) {
+            if (WebClient == null || AboutUri == null)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientInputError,
                     "WebClient is nothing, or the oBIX:About URI could not be found from the lobby contract.");
             }
 
             data = ReadUriXml(AboutUri);
-            if (data.ResultSucceeded == false) {
+            if (data.ResultSucceeded == false)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ParseAboutContract received an error from ReadUriXml.");
             }
 
             about = ObixAbout.FromXElement(data.Result);
-            if (about == null) {
+            if (about == null)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ParseAboutContract could not parse the obix:About contract.");
             }
@@ -219,66 +287,83 @@ namespace NetBIX.oBIX.Client {
         /// </summary>
         /// <returns>kObixResultSuccess on success, another value otherwise.</returns>
         /// <param name="doc">An XDocument from the server.</param>
-        private ObixResult ParseLobbyContract(XDocument doc) {
+        private ObixResult ParseLobbyContract(XDocument doc)
+        {
             XElement rootNode = null;
             XElement lobby = null;
 
-            if (doc == null) {
+            if (doc == null)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientInputError,
                     "ParseLobbyContract got passed a null document.");
             }
 
             rootNode = doc.Root;
-            if (rootNode == null) {
+            if (rootNode == null)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "Could not locate the root element in the provided XML document.");
             }
 
-            if (rootNode.Name.LocalName == "obj" && rootNode.ObixIs().Contains("obix:Lobby")) {
+            if (rootNode.Name.LocalName == "obj" && rootNode.ObixIs().Contains("obix:Lobby"))
+            {
                 lobby = rootNode;
             }
 
-            foreach (XElement element in rootNode.Descendants()) {
+            foreach (XElement element in rootNode.Descendants())
+            {
                 XAttribute isAttr = null;
                 XAttribute hrefAttr = null;
                 string isValue = null;
                 string hrefValue = null;
 
-                if (element == null || element.HasAttributes == false) {
+                if (element == null || element.HasAttributes == false)
+                {
                     continue;
                 }
 
-				isAttr = element.Attribute("is");
-                if (isAttr == null || string.IsNullOrEmpty(isAttr.Value) == true) {
+                isAttr = element.Attribute("is");
+                if (isAttr == null || string.IsNullOrEmpty(isAttr.Value) == true)
+                {
                     continue;
                 }
 
                 isValue = isAttr.Value;
                 hrefAttr = element.Attribute("href");
 
-                if (hrefAttr != null && string.IsNullOrEmpty(hrefAttr.Value) == false) {
+                if (hrefAttr != null && string.IsNullOrEmpty(hrefAttr.Value) == false)
+                {
                     hrefValue = hrefAttr.Value;
                 }
 
-                if (string.IsNullOrEmpty(hrefValue) == false) {
-                    if (isValue.Contains("obix:Lobby") == true) {
+                if (string.IsNullOrEmpty(hrefValue) == false)
+                {
+                    if (isValue.Contains("obix:Lobby") == true)
+                    {
                         lobby = element;
-                    } else if (isValue.Contains("obix:WatchService") == true) {
+                    }
+                    else if (isValue.Contains("obix:WatchService") == true)
+                    {
                         WatchUri = LobbyUri.Concat(hrefValue);
 
-                    } else if (isValue.Contains("obix:About") == true) {
+                    }
+                    else if (isValue.Contains("obix:About") == true)
+                    {
                         AboutUri = LobbyUri.Concat(hrefValue);
                     }
                 }
             }
 
-            if (lobby == null) {
+            if (lobby == null)
+            {
                 return ErrorStack.Push(this.GetType(), ObixResult.kObixClientXMLElementNotFoundError,
                     "ParseLobbyContract could not find the oBIX Lobby in the response.");
             }
 
-            foreach (XElement lobbyElement in lobby.Elements()) {
-                if (lobbyElement.HasAttributes && lobbyElement.ObixIn() == "obix:BatchIn" && lobbyElement.ObixOut() == "obix:BatchOut") {
+            foreach (XElement lobbyElement in lobby.Elements())
+            {
+                if (lobbyElement.HasAttributes && lobbyElement.ObixIn() == "obix:BatchIn" && lobbyElement.ObixOut() == "obix:BatchOut")
+                {
                     BatchUri = LobbyUri.Concat(lobbyElement.ObixHref());
                 }
             }
@@ -288,7 +373,8 @@ namespace NetBIX.oBIX.Client {
             //    BatchUri = LobbyUri.Concat(batchService.Attribute("href").Value);
             //}
 
-            if (BatchUri != null) {
+            if (BatchUri != null)
+            {
                 batchClient = new XmlBatchClient(this);
             }
 
@@ -305,36 +391,45 @@ namespace NetBIX.oBIX.Client {
         /// <param name="uri">The URI of the oBIX data point to read</param>
         /// <returns>kObixClientResultSuccess with an XElement representing the 
         /// oBIX XML object on success, another value otherwise.</returns>
-        public ObixResult<XElement> ReadUriXml(Uri uri) {
+        public ObixResult<XElement> ReadUriXml(Uri uri)
+        {
             ObixResult<byte[]> data = null;
             XDocument doc = null;
             MemoryStream ms = null;
 
-            if (WebClient == null) {
+            if (WebClient == null)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientNotConnectedError, (XElement)null);
             }
 
             data = ReadUri(uri);
-            if (data.ResultSucceeded == false) {
+            if (data.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ReadUriXml could not understand the downloaded document at URI " + uri.ToString(), (XElement)null);
             }
 
-            using (ms = new MemoryStream(data.Result)) {
+            using (ms = new MemoryStream(data.Result))
+            {
                 ms.Position = 0;
-                try {
+                try
+                {
                     doc = XDocument.Load(ms);
-                } catch (Exception ex) {
+                }
+                catch (Exception ex)
+                {
                     return ErrorStack.PushWithObject(this.GetType(), ex, (XElement)null);
                 }
             }
 
-            if (doc == null || doc.Root == null) {
+            if (doc == null || doc.Root == null)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ReadUriXml could not understand the downloaded document at URI " + uri.ToString(), (XElement)null);
             }
 
-            if (doc.Root.IsObixErrorContract()) {
+            if (doc.Root.IsObixErrorContract())
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, doc.Root);
             }
 
@@ -347,37 +442,45 @@ namespace NetBIX.oBIX.Client {
         /// <param name="uri">The URI of the oBIX data point to read</param>
         /// <returns>kObixClientResultSuccess with an XElement representing the 
         /// oBIX XML object on success, another value otherwise.</returns>
-        public async Task<ObixResult<XElement>> ReadUriXmlAsync(Uri uri) {
+        public async Task<ObixResult<XElement>> ReadUriXmlAsync(Uri uri)
+        {
             ObixResult<byte[]> data = null;
             XDocument doc = null;
             MemoryStream ms = null;
 
-            if (WebClient == null) {
+            if (WebClient == null)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientNotConnectedError, (XElement)null);
             }
 
             data = await ReadUriAsync(uri);
-            if (data.ResultSucceeded == false) {
+            if (data.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ReadUriXml could not understand the downloaded document at URI " + uri.ToString(), (XElement)null);
             }
 
             ms = new MemoryStream(data.Result);
-            try {
+            try
+            {
                 doc = await Task.Factory.StartNew<XDocument>(() => XDocument.Load(ms));
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ex, (XElement)null);
             }
 
             ms.Dispose();
             ms = null;
 
-            if (doc == null || doc.Root == null) {
+            if (doc == null || doc.Root == null)
+            {
                 return ErrorStack.PushWithObject(this.GetType(), ObixResult.kObixClientXMLParseError,
                     "ReadUriXml could not understand the downloaded document at URI " + uri.ToString(), (XElement)null);
             }
 
-            if (doc.Root.IsObixErrorContract()) {
+            if (doc.Root.IsObixErrorContract())
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, doc.Root);
             }
 
@@ -396,7 +499,8 @@ namespace NetBIX.oBIX.Client {
         /// <param name="element">An oBIX object to send to the oBIX server</param>
         /// <returns>kObixClientResultSuccess on success with the response oBIX object from the server, 
         /// another value otherwise.</returns>
-        public ObixResult<XElement> WriteUriXml(Uri uri, XElement element) {
+        public ObixResult<XElement> WriteUriXml(Uri uri, XElement element)
+        {
             XmlWriter writer;
             XmlReader reader;
             XElement responseElement;
@@ -404,36 +508,46 @@ namespace NetBIX.oBIX.Client {
             MemoryStream ms;
             ObixResult<byte[]> response;
 
-            if (uri == null || element == null) {
+            if (uri == null || element == null)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientInputError,
                     "Uri, or data to write is nothing.", (XElement)null);
             }
 
-            using (ms = new MemoryStream()) {
-                using (writer = XmlWriter.Create(ms)) {
+            using (ms = new MemoryStream())
+            {
+                using (writer = XmlWriter.Create(ms))
+                {
                     element.WriteTo(writer);
                 }
                 response = WriteUri(uri, ms.ToArray());
             }
 
-            if (response.ResultSucceeded == false) {
+            if (response.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(GetType(), response,
                     "WriteUri failed to write data to the obix server: " + response.ToString(), (XElement)null);
             }
 
-            try {
-                using (ms = new MemoryStream(response.Result)) {
-                    using (reader = XmlReader.Create(ms)) {
+            try
+            {
+                using (ms = new MemoryStream(response.Result))
+                {
+                    using (reader = XmlReader.Create(ms))
+                    {
                         doc = XDocument.Load(reader);
                     }
                 }
-            } catch (Exception) {
+            }
+            catch (Exception)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                     "Could not parse the XML response from the server.", (XElement)null);
             }
 
             responseElement = doc.Root;
-            if (responseElement.IsObixErrorContract() == true) {
+            if (responseElement.IsObixErrorContract() == true)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, responseElement.ObixDisplay(), responseElement);
             }
 
@@ -448,7 +562,8 @@ namespace NetBIX.oBIX.Client {
         /// <param name="element">An oBIX object to send to the oBIX server</param>
         /// <returns>kObixClientResultSuccess on success with the response oBIX object from the server, 
         /// another value otherwise.</returns>
-        public async Task<ObixResult<XElement>> WriteUriXmlAsync(Uri uri, XElement element) {
+        public async Task<ObixResult<XElement>> WriteUriXmlAsync(Uri uri, XElement element)
+        {
             XmlWriter writer;
             XmlReader reader;
             XElement responseElement;
@@ -457,11 +572,13 @@ namespace NetBIX.oBIX.Client {
             ObixResult<byte[]> response;
             byte[] data;
 
-            if (uri == null || element == null) {
+            if (uri == null || element == null)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientInputError, "Uri, or data to write is nothing.", (XElement)null);
             }
 
-            try {
+            try
+            {
                 ms = new MemoryStream();
                 writer = XmlWriter.Create(ms);
                 element.WriteTo(writer);
@@ -471,28 +588,35 @@ namespace NetBIX.oBIX.Client {
                 writer = null;
                 ms.Dispose();
                 ms = null;
-            } catch (Exception) {
+            }
+            catch (Exception)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                     "WriteUriXmlAsync could not understand the XML document provided.", (XElement)null);
             }
 
             response = await WriteUriAsync(uri, data);
-            if (response.ResultSucceeded == false) {
+            if (response.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(GetType(), response, (XElement)null);
             }
 
             ms = new MemoryStream(response);
             reader = XmlReader.Create(ms);
 
-            try {
+            try
+            {
                 doc = await Task.Factory.StartNew(() => doc = XDocument.Load(reader));
-            } catch (Exception) {
+            }
+            catch (Exception)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                     "WriteUriXmlAsync could not understand the response document provided.", (XElement)null);
             }
 
             responseElement = doc.Root;
-            if (responseElement.IsObixErrorContract() == true) {
+            if (responseElement.IsObixErrorContract() == true)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, responseElement.ObixDisplay(), responseElement);
             }
 
@@ -509,7 +633,8 @@ namespace NetBIX.oBIX.Client {
         /// <param name="uri">URI of the obix:op</param>
         /// <param name="element">An oBIX object to send as parameters to the URI.  If null, no parameters are sent.</param>
         /// <returns>kObixClientResultSuccess on success with the result of the obix:op as an XElement, another value otherwise.</returns>
-        public ObixResult<XElement> InvokeUriXml(Uri uri, XElement element) {
+        public ObixResult<XElement> InvokeUriXml(Uri uri, XElement element)
+        {
             XmlWriter writer = null;
             XmlReader reader = null;
             XElement responseElement = null;
@@ -518,14 +643,18 @@ namespace NetBIX.oBIX.Client {
             byte[] request = null;
             ObixResult<byte[]> response = null;
 
-            if (uri == null) {
+            if (uri == null)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientInputError,
                     "Uri is nothing.", (XElement)null);
             }
 
-            if (element != null) {
-                using (ms = new MemoryStream()) {
-                    using (writer = XmlWriter.Create(ms)) {
+            if (element != null)
+            {
+                using (ms = new MemoryStream())
+                {
+                    using (writer = XmlWriter.Create(ms))
+                    {
                         element.WriteTo(writer);
                     }
                     request = ms.ToArray();
@@ -533,24 +662,31 @@ namespace NetBIX.oBIX.Client {
             }
 
             response = InvokeUri(uri, request);
-            if (response.ResultSucceeded == false) {
+            if (response.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(GetType(), response,
                     "WriteUri failed to invoke operation: " + uri.ToString() + ": " + ObixResult.Message(response), (XElement)null);
             }
 
-            try {
-                using (ms = new MemoryStream(response.Result)) {
-                    using (reader = XmlReader.Create(ms)) {
+            try
+            {
+                using (ms = new MemoryStream(response.Result))
+                {
+                    using (reader = XmlReader.Create(ms))
+                    {
                         doc = XDocument.Load(reader);
                     }
                 }
-            } catch (Exception ex) {
+            }
+            catch (Exception ex)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                     "Could not parse the XML response from the server: " + ex.ToString(), (XElement)null);
             }
 
             responseElement = doc.Root;
-            if (responseElement.IsObixErrorContract() == true) {
+            if (responseElement.IsObixErrorContract() == true)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, responseElement.ObixDisplay(), responseElement);
             }
 
@@ -564,7 +700,8 @@ namespace NetBIX.oBIX.Client {
         /// <param name="uri">URI of the obix:op</param>
         /// <param name="element">An oBIX object to send as parameters to the URI.  If null, no parameters are sent.</param>
         /// <returns>kObixClientResultSuccess on success with the result of the obix:op as an XElement, another value otherwise.</returns>
-        public async Task<ObixResult<XElement>> InvokeUriXmlAsync(Uri uri, XElement element) {
+        public async Task<ObixResult<XElement>> InvokeUriXmlAsync(Uri uri, XElement element)
+        {
             XmlWriter writer;
             XmlReader reader;
             XElement responseElement;
@@ -573,27 +710,35 @@ namespace NetBIX.oBIX.Client {
             ObixResult<byte[]> response;
             byte[] request = null;
 
-            if (uri == null) {
+            if (uri == null)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientInputError, "Uri is nothing.", (XElement)null);
             }
 
-            if (element != null) {
-                try {
-                    using (ms = new MemoryStream()) {
-                        using (writer = XmlWriter.Create(ms)) {
+            if (element != null)
+            {
+                try
+                {
+                    using (ms = new MemoryStream())
+                    {
+                        using (writer = XmlWriter.Create(ms))
+                        {
                             element.WriteTo(writer);
                         }
 
                         request = ms.ToArray();
                     }
-                } catch (Exception) {
+                }
+                catch (Exception)
+                {
                     return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                         "InvokeUriXmlAsync could not understand the XML document provided.", (XElement)null);
                 }
             }
 
             response = await InvokeUriAsync(uri, request);
-            if (response.ResultSucceeded == false) {
+            if (response.ResultSucceeded == false)
+            {
                 return ErrorStack.PushWithObject(GetType(), response, (XElement)null);
             }
 
@@ -601,15 +746,19 @@ namespace NetBIX.oBIX.Client {
             ms.Seek(0, SeekOrigin.Begin);
             reader = XmlReader.Create(ms);
 
-            try {
+            try
+            {
                 doc = await Task.Factory.StartNew(() => doc = XDocument.Load(reader));
-            } catch (Exception) {
+            }
+            catch (Exception)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixClientXMLParseError,
                     "WriteUriXmlAsync could not understand the response document provided.", (XElement)null);
             }
 
             responseElement = doc.Root;
-            if (responseElement.IsObixErrorContract() == true) {
+            if (responseElement.IsObixErrorContract() == true)
+            {
                 return ErrorStack.PushWithObject(GetType(), ObixResult.kObixServerError, responseElement.ObixDisplay(), responseElement);
             }
 
@@ -618,13 +767,16 @@ namespace NetBIX.oBIX.Client {
 
         #endregion
 
-        protected override bool Dispose(bool disposing) {
+        protected override bool Dispose(bool disposing)
+        {
             base.Dispose(disposing);
-            if (_disposed == true) {
+            if (_disposed == true)
+            {
                 return false;
             }
 
-            if (disposing == true) {
+            if (disposing == true)
+            {
                 WebClient.Dispose();
             }
 

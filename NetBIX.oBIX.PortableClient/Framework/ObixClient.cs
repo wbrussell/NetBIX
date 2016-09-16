@@ -15,6 +15,9 @@ namespace NetBIX.oBIX.Client.Framework {
         protected bool _disposed = false;
         protected bool connected = false;
 
+        public string Username { get; set; }
+        public string Password { get; set; }
+
         /// <summary>
         /// A reference to the .net web client that will be making normal calls to the oBIX server
         /// via HTTP.

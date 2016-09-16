@@ -12,19 +12,27 @@ using Flurl;
 using System.Threading;
 using System.Windows.Forms;
 using System.Collections.Generic;
+using System.Configuration;
+using System.Net;
 
 namespace NetBIX.WindowsUnitTest {
     [TestClass]
     public class XMLClientAPIUnitTests {
-        public Uri obixLobby = new Uri("http://obix.server/obix");
+        public Uri obixLobby = new Uri("http://192.168.1.208/obix");
         public XmlObixClient client = null;
         public Thread wndThread = null;
         public CProgressWnd progressWnd = null;
+        private string _user;
+        private string _pass;
 
         [TestInitialize]
-        public void GlobalInitialize() {
-            client = new XmlObixClient(obixLobby);
-           
+        public void GlobalInitialize()
+        {
+            _user = ConfigurationManager.AppSettings["obix.user"];
+            _pass = ConfigurationManager.AppSettings["obix.password"];
+
+            client = new XmlObixClient(obixLobby,AuthenticationSchemes.Basic, _user, _pass);
+
             Assert.IsNotNull(client, "Initializing the oBIX client failed.");
             client.ErrorStack.ErrorAdded += ObixError_ErrorAdded;
         }
@@ -78,6 +86,44 @@ namespace NetBIX.WindowsUnitTest {
             ObixResult result;
 
             result = client.Connect();
+            Console.Out.WriteLine("Connect result: {0}", result);
+
+            Assert.AreEqual<int>(result, ObixResult.kObixClientSuccess,
+                string.Format("Connect failed with error: {0}: {1}", result, ObixResult.Message((int)result)));
+        }
+
+        /// <summary>
+        /// Tests the oBIX client's Connect() functionality.
+        /// </summary>
+        [TestMethod]
+        public void TestConnect_BasicAuth()
+        {
+            ObixResult result;
+
+            var newclient = new XmlObixClient(obixLobby, AuthenticationSchemes.Basic, _user, _pass);
+
+            Assert.IsNotNull(newclient, "Initializing the oBIX client failed.");
+            newclient.ErrorStack.ErrorAdded += ObixError_ErrorAdded;
+            result = newclient.Connect();
+            Console.Out.WriteLine("Connect result: {0}", result);
+
+            Assert.AreEqual<int>(result, ObixResult.kObixClientSuccess,
+                string.Format("Connect failed with error: {0}: {1}", result, ObixResult.Message((int)result)));
+        }
+
+        /// <summary>
+        /// Tests the oBIX client's Connect() functionality.
+        /// </summary>
+        [TestMethod]
+        public void TestConnect_BasicAuth_InvalidLogin()
+        {
+            ObixResult result;
+
+            var newclient = new XmlObixClient(obixLobby, AuthenticationSchemes.Basic, "asdf", "**");
+
+            Assert.IsNotNull(newclient, "Initializing the oBIX client failed.");
+            newclient.ErrorStack.ErrorAdded += ObixError_ErrorAdded;
+            result = newclient.Connect();
             Console.Out.WriteLine("Connect result: {0}", result);
 
             Assert.AreEqual<int>(result, ObixResult.kObixClientSuccess,
@@ -162,125 +208,125 @@ namespace NetBIX.WindowsUnitTest {
             Console.Out.WriteLine(lobby.ToString());
         }
 
-        [TestMethod]
-        public void TestInvokeXmlUri() {
-            ObixResult<XElement> result;
-            XElement sampleDevice = CreateTestDevice();
+        //[TestMethod]
+        //public void TestInvokeXmlUri() {
+        //    ObixResult<XElement> result;
+        //    XElement sampleDevice = CreateTestDevice();
 
-            Assert.IsNotNull(sampleDevice, "TestInvokeXmlUri failed to create a sample device oBIX object.");
+        //    Assert.IsNotNull(sampleDevice, "TestInvokeXmlUri failed to create a sample device oBIX object.");
 
-            TestConnect();
-            Assert.IsNotNull(client, "Client is not initialized.");
-            Assert.IsTrue(client.IsConnected, "Client is not connected.");
+        //    TestConnect();
+        //    Assert.IsNotNull(client, "Client is not initialized.");
+        //    Assert.IsTrue(client.IsConnected, "Client is not connected.");
 
-            result = client.InvokeUriXml(new Uri(Url.Combine(client.LobbyUri.ToString(), "signUp")), sampleDevice);
+        //    result = client.InvokeUriXml(new Uri(Url.Combine(client.LobbyUri.ToString(), "signUp")), sampleDevice);
 
-            //Error contract is still a valid response from the server.
-            Assert.IsTrue(result.ResultSucceeded || result.Result.IsObixErrorContract(), "WriteUri received result: " + result);
-        }
+        //    //Error contract is still a valid response from the server.
+        //    Assert.IsTrue(result.ResultSucceeded || result.Result.IsObixErrorContract(), "WriteUri received result: " + result);
+        //}
 
-        [TestMethod]
-        public async Task TestInvokeXmlUriAsync() {
-            ObixResult<XElement> result;
-            XElement sampleDevice = CreateTestDevice();
+        //[TestMethod]
+        //public async Task TestInvokeXmlUriAsync() {
+        //    ObixResult<XElement> result;
+        //    XElement sampleDevice = CreateTestDevice();
 
-            Assert.IsNotNull(sampleDevice, "TestInvokeXmlUriAsync failed to create a sample device oBIX object.");
+        //    Assert.IsNotNull(sampleDevice, "TestInvokeXmlUriAsync failed to create a sample device oBIX object.");
 
-            TestConnect();
-            Assert.IsNotNull(client, "Client is not initialized.");
-            Assert.IsTrue(client.IsConnected, "Client is not connected.");
+        //    TestConnect();
+        //    Assert.IsNotNull(client, "Client is not initialized.");
+        //    Assert.IsTrue(client.IsConnected, "Client is not connected.");
 
-            result = await client.InvokeUriXmlAsync(new Uri(Url.Combine(client.LobbyUri.ToString(), "signUp")), sampleDevice);
+        //    result = await client.InvokeUriXmlAsync(new Uri(Url.Combine(client.LobbyUri.ToString(), "signUp")), sampleDevice);
 
-            //Error contract is still a valid response from the server.
-            Assert.IsTrue(result.ResultSucceeded || result.Result.IsObixErrorContract(), "WriteUri received result: " + result);
-        }
+        //    //Error contract is still a valid response from the server.
+        //    Assert.IsTrue(result.ResultSucceeded || result.Result.IsObixErrorContract(), "WriteUri received result: " + result);
+        //}
 
-        [TestMethod]
-        public void TestDeviceIO() {
-            ObixResult<XElement> xmlResult = null;
-            XElement sampleDevice = null;
-            XElement remoteSampleDevice = null;
-            Uri deviceUri = null;
-            Uri signupUri = client.LobbyUri.Concat("signUp");
+        //[TestMethod]
+        //public void TestDeviceIO() {
+        //    ObixResult<XElement> xmlResult = null;
+        //    XElement sampleDevice = null;
+        //    XElement remoteSampleDevice = null;
+        //    Uri deviceUri = null;
+        //    Uri signupUri = client.LobbyUri.Concat("signUp");
 
-            TestConnect();
-            Assert.IsNotNull(client, "Client is not initialized.");
-            Assert.IsTrue(client.IsConnected, "Client is not connected.");
+        //    TestConnect();
+        //    Assert.IsNotNull(client, "Client is not initialized.");
+        //    Assert.IsTrue(client.IsConnected, "Client is not connected.");
 
-            sampleDevice = CreateTestDevice();
-            Assert.IsNotNull(sampleDevice, "TestDeviceWrite failed to create a sample device oBIX object.");
+        //    sampleDevice = CreateTestDevice();
+        //    Assert.IsNotNull(sampleDevice, "TestDeviceWrite failed to create a sample device oBIX object.");
 
-            xmlResult = client.InvokeUriXml(signupUri, sampleDevice);
-            Assert.IsTrue(xmlResult.ResultSucceeded, string.Format("Device signup to href {0} failed with result {1}.", signupUri, xmlResult));
+        //    xmlResult = client.InvokeUriXml(signupUri, sampleDevice);
+        //    Assert.IsTrue(xmlResult.ResultSucceeded, string.Format("Device signup to href {0} failed with result {1}.", signupUri, xmlResult));
 
-            deviceUri = obixLobby.Concat(sampleDevice.ObixHref());
-            Assert.IsNotNull(deviceUri, "deviceUri is null");
+        //    deviceUri = obixLobby.Concat(sampleDevice.ObixHref());
+        //    Assert.IsNotNull(deviceUri, "deviceUri is null");
 
-            Console.WriteLine("Device registered at URI {0}", deviceUri.ToString());
+        //    Console.WriteLine("Device registered at URI {0}", deviceUri.ToString());
 
-            xmlResult = client.ReadUriXml(deviceUri);
-            Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, 
-                string.Format("Failed to retrieve created device at href {0} after successfully submitting it.", deviceUri));
+        //    xmlResult = client.ReadUriXml(deviceUri);
+        //    Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, 
+        //        string.Format("Failed to retrieve created device at href {0} after successfully submitting it.", deviceUri));
 
-            remoteSampleDevice = xmlResult.Result;
-            Assert.IsNotNull(remoteSampleDevice);
+        //    remoteSampleDevice = xmlResult.Result;
+        //    Assert.IsNotNull(remoteSampleDevice);
 
-            xmlResult = client.ReadUriXml(deviceUri.Concat("testBool"));
-            Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX Read testBool failed.");
-            Assert.IsNotNull(xmlResult.Result.ObixBoolValue(), "oBIX Read testBool failed: element returned is not an obix:bool.");
-            Assert.IsTrue(xmlResult.Result.ObixBoolValue().Value, "testBool on sampleDevice is not true.");
+        //    xmlResult = client.ReadUriXml(deviceUri.Concat("testBool"));
+        //    Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX Read testBool failed.");
+        //    Assert.IsNotNull(xmlResult.Result.ObixBoolValue(), "oBIX Read testBool failed: element returned is not an obix:bool.");
+        //    Assert.IsTrue(xmlResult.Result.ObixBoolValue().Value, "testBool on sampleDevice is not true.");
 
-            xmlResult = client.WriteUriXml(deviceUri.Concat("testBool"), false.ObixXmlValue());
-            Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX write failed.");
+        //    xmlResult = client.WriteUriXml(deviceUri.Concat("testBool"), false.ObixXmlValue());
+        //    Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX write failed.");
                
 
-            xmlResult = client.ReadUriXml(deviceUri.Concat("testBool"));
-            Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX Read testBool failed.");
-            Assert.IsNotNull(xmlResult.Result.ObixBoolValue(), "oBIX Read testBool failed: element returned is not an obix:bool.");
-            Assert.IsFalse(xmlResult.Result.ObixBoolValue().Value, "Changing testBool on sampleDevice failed: testBool on the server side is the same value.");
-        }
+        //    xmlResult = client.ReadUriXml(deviceUri.Concat("testBool"));
+        //    Assert.IsTrue(xmlResult.ResultSucceeded && xmlResult.Result.IsObixErrorContract() == false, "oBIX Read testBool failed.");
+        //    Assert.IsNotNull(xmlResult.Result.ObixBoolValue(), "oBIX Read testBool failed: element returned is not an obix:bool.");
+        //    Assert.IsFalse(xmlResult.Result.ObixBoolValue().Value, "Changing testBool on sampleDevice failed: testBool on the server side is the same value.");
+        //}
 
-        [TestMethod]
-        public void TestDeviceBulk() {
-            int maxDevices = 10000;
-            ObixResult<XElement> xmlResult = null;
-            XElement sampleDevice = null;
-            Uri signupUri = client.LobbyUri.Concat("signUp");
+        //[TestMethod]
+        //public void TestDeviceBulk() {
+        //    int maxDevices = 100;
+        //    ObixResult<XElement> xmlResult = null;
+        //    XElement sampleDevice = null;
+        //    Uri signupUri = client.LobbyUri.Concat("signUp");
 
-            progressWnd = new CProgressWnd("Posting oBIX devices");
-            wndThread = new Thread(() => {
-                progressWnd.ShowDialog();
-            });
+        //    progressWnd = new CProgressWnd("Posting oBIX devices");
+        //    wndThread = new Thread(() => {
+        //        progressWnd.ShowDialog();
+        //    });
 
-            wndThread.SetApartmentState(ApartmentState.STA);
-            wndThread.Start();
+        //    wndThread.SetApartmentState(ApartmentState.STA);
+        //    wndThread.Start();
 
-            progressWnd.ProgressMaximumValue = maxDevices;
+        //    progressWnd.ProgressMaximumValue = maxDevices;
 
-            TestConnect();
-            Assert.IsNotNull(client, "Client is not initialized.");
-            Assert.IsTrue(client.IsConnected, "Client is not connected.");
+        //    TestConnect();
+        //    Assert.IsNotNull(client, "Client is not initialized.");
+        //    Assert.IsTrue(client.IsConnected, "Client is not connected.");
 
-            for (int i = 0; i <= maxDevices; i++) {
-                sampleDevice = CreateTestDevice();
-                Assert.IsNotNull(sampleDevice, "TestDeviceWrite failed to create a sample device oBIX object.");
+        //    for (int i = 0; i <= maxDevices; i++) {
+        //        sampleDevice = CreateTestDevice();
+        //        Assert.IsNotNull(sampleDevice, "TestDeviceWrite failed to create a sample device oBIX object.");
 
-                xmlResult = client.InvokeUriXml(signupUri, sampleDevice);
-                Assert.IsTrue(xmlResult.ResultSucceeded, string.Format("Device signup to href {0} failed with result {1}.", signupUri, xmlResult));
-                progressWnd.Increment();
-            }
+        //        xmlResult = client.InvokeUriXml(signupUri, sampleDevice);
+        //        Assert.IsTrue(xmlResult.ResultSucceeded, string.Format("Device signup to href {0} failed with result {1}.", signupUri, xmlResult));
+        //        progressWnd.Increment();
+        //    }
 
-            progressWnd.RunOnUIThread(() => {
-                progressWnd.Hide();
-            });
+        //    progressWnd.RunOnUIThread(() => {
+        //        progressWnd.Hide();
+        //    });
 
-            wndThread.Join();
-        }
+        //    wndThread.Join();
+        //}
 
         [TestMethod]
         public void TestWatchBulk() {
-            int maxIterations = 10000;
+            int maxIterations = 100;
             List<string> watchUriList = new List<string>(maxIterations);
             ObixResult<XElement> xmlResult = null;
             
@@ -334,9 +380,8 @@ namespace NetBIX.WindowsUnitTest {
 
         [TestMethod]
         public void TestGetBulk() {
-            int maxIterations = 10000;
+            int maxIterations = 100;
             ObixResult<XElement> xmlResult = null;
-            Uri signupUri = client.LobbyUri.Concat("signUp");
 
             progressWnd = new CProgressWnd("Invoking obix reads");
             wndThread = new Thread(() => {
@@ -415,11 +460,9 @@ namespace NetBIX.WindowsUnitTest {
             Assert.IsTrue(client.IsConnected, "Client is not connected.");
 
 
-            result = client.ReadUriXml(client.LobbyUri.Concat("/obix/deviceRoot/M1/DH4/BCM/4A-1A/"));
+            result = client.ReadUriXml(client.LobbyUri.Concat("/config/Drivers/ObixNetwork/exports/BV1/"));
             Assert.IsNotNull(result, "ReadUriXml failed.");
             Assert.IsTrue(result.ResultSucceeded, "ReadUriXml failed with result " + result.ToString());
-
-
 
         }
 
